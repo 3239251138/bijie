@@ -441,16 +441,14 @@ if len(var_clean) >= 6:
         st.subheader("人口变动方程 (ΔPOP_t)")
         st.latex(r"\Delta POP_t = c_0 + \sum_{i=1}^{p}\phi_{11}^{(i)}\Delta POP_{t-i} + \sum_{i=1}^{p}\phi_{12}^{(i)}\Delta \ln(GDP)_{t-i} + \varepsilon_{1t}")
         
-        # 系数表
-        coef_pop = results.coefs[:, 0, :]  # d_POP的系数
-        coef_labels = [f'ΔPOP(t-{i})' for i in range(1, len(coef_pop)+1)]
-        coef_gdp = results.coefs[:, 1, :]  # d_ln_GDP的系数
-        coef_gdp_labels = [f'ΔlnGDP(t-{i})' for i in range(1, len(coef_gdp)+1)]
+        # 系数表（coefs[l, i, j] = 变量j对方程i在第l+1期的系数）
+        # 取 GDP 对人口方程的滞后1期系数
+        gdp_on_pop_lag1 = results.coefs[0, 0, 1]  # Δln(GDP) → ΔPOP方程, lag=1
         
         st.markdown("**关键系数解读:**")
-        st.success(f"""经济拉动效应: Δln(GDP)_{{t-1}} 系数为 **{coef_gdp[0]:.3f}**
+        st.success(f"""经济拉动效应: Δln(GDP)_{{t-1}} 系数为 **{gdp_on_pop_lag1:.3f}**
 
-这表明: 毕节市当年GDP增速每提高1个百分点，在滞后一期(即第二年)将影响人口增量约 **{abs(coef_gdp[0]):.1f}万人**""")
+这表明: 毕节市当年GDP增速每提高1个百分点，在滞后一期(即第二年)将影响人口增量约 **{abs(gdp_on_pop_lag1):.1f}万人**""")
     
     with var_tab2:
         st.subheader("Granger 因果检验结果")
