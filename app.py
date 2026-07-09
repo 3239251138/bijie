@@ -92,15 +92,12 @@ def load_data():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(base_dir, 'data.csv')
     
-    # 尝试多种方式读取（兼容Excel格式）
+    # 读取CSV数据（UTF-8编码带BOM，兼容Excel打开）
     try:
-        df = pd.read_csv(data_path)
-    except:
-        try:
-            df = pd.read_excel(data_path)
-        except Exception as e:
-            st.error(f"数据加载失败: {e}")
-            st.stop()
+        df = pd.read_csv(data_path, encoding='utf-8-sig')
+    except Exception as e:
+        st.error(f"数据加载失败: {e}")
+        st.stop()
     
     df['year'] = df['year'].astype(int)
     
