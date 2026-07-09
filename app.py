@@ -377,11 +377,21 @@ with col_adf_table:
     )
 
 with col_adf_interpret:
-    st.markdown('<div class="success-box">', unsafe_allow_html=True)
-    st.write("**检验结论：**")
-    st.write("✅ ΔPOP_t 和 Δln(GDP)_t 的P值均小于 0.05")
-    st.write("✅ 两者同为一阶单整序列 I(1)")
-    st.write("✅ **满足构建 VAR 模型的前提条件！**")
+    # 根据实际数据生成动态结论
+    pop_diff_p = adf_results[1]['P值']
+    gdp_diff_p = adf_results[3]['P值']
+    pop_stationary = pop_diff_p < 0.05
+    gdp_stationary = gdp_diff_p < 0.05
+    
+    box_class = 'success-box' if (pop_stationary and gdp_stationary) else 'warning-box'
+    st.markdown(f'<div class="{box_class}">', unsafe_allow_html=True)
+    st.write("**检验结论（基于当前数据）：**")
+    st.write(f"{'✅' if pop_stationary else '⚠️'} 人口一阶差分 ΔPOP_t: P值={pop_diff_p:.4f} {'→ 平稳' if pop_stationary else '→ 非平稳'}")
+    st.write(f"{'✅' if gdp_stationary else '⚠️'} GDP对数一阶差分 Δln(GDP)_t: P值={gdp_diff_p:.4f} {'→ 平稳' if gdp_stationary else '→ 非平稳'}")
+    if pop_stationary and gdp_stationary:
+        st.write("✅ **满足构建 VAR 模型的前提条件！**")
+    else:
+        st.write("⚠️ 部分序列非平稳，VAR模型结果需谨慎解读（可能需更高阶差分）")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== 第四部分：VAR 模型分析 ====================
@@ -470,7 +480,6 @@ if len(var_clean) >= 6:
                         delta=f"P={p_val:.4f}" + (" ✅拒绝H₀" if is_significant else " ❌接受H₀"),
                         delta_color="inverse" if not is_significant else "normal"
                     )
-                st.markdown('</div>', unsafe_allow_html=True)
             
             with col_gc2:
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -501,7 +510,8 @@ if len(var_clean) >= 6:
         irf = results.irf(periods=10)
         
         # Plotly版本的IRF图
-        irf_vals = irf.irfs[:, 1, 0]  # d_ln_GDP冲击对d_POP的响应
+        # irfs[h, response_var, impulse_var]: d_POP(0) 对 d_ln_GDP(1) 冲击的响应
+        irf_vals = irf.irfs[:, 0, 1]  # d_ln_GDP冲击对d_POP的响应
         
         fig_irf = go.Figure()
         fig_irf.add_trace(go.Scatter(
