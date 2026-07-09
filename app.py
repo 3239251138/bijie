@@ -337,17 +337,41 @@ st.info("""**检验目的**: 在构建VAR模型前，需验证时间序列是否
 @st.cache_data
 def run_adf_test(series, name):
     """执行ADF检验"""
-    result = adfuller(series.dropna(), autolag='AIC')
-    return {
-        '变量': name,
-        'ADF统计量': result[0],
-        'P值': result[1],
-        '滞后阶数': int(result[2]),
-        '观测数': int(result[3]),
-        '临界值(1%)': result[4]['1%'],
-        '临界值(5%)': result[4]['5%'],
-        '结论': '平稳 ✅' if result[1] < 0.05 else '非平稳 ❌'
-    }
+    clean = series.dropna()
+    if len(clean) < 6:
+        return {
+            '变量': name,
+            'ADF统计量': None,
+            'P值': None,
+            '滞后阶数': None,
+            '观测数': len(clean),
+            '临界值(1%)': None,
+            '临界值(5%)': None,
+            '结论': '数据不足 ⚠️'
+        }
+    try:
+        result = adfuller(clean, autolag='AIC')
+        return {
+            '变量': name,
+            'ADF统计量': result[0],
+            'P值': result[1],
+            '滞后阶数': int(result[2]),
+            '观测数': int(result[3]),
+            '临界值(1%)': result[4]['1%'],
+            '临界值(5%)': result[4]['5%'],
+            '结论': '平稳 ✅' if result[1] < 0.05 else '非平稳 ❌'
+        }
+    except Exception as e:
+        return {
+            '变量': name,
+            'ADF统计量': None,
+            'P值': None,
+            '滞后阶数': None,
+            '观测数': len(clean),
+            '临界值(1%)': None,
+            '临界值(5%)': None,
+            '结论': f'检验失败 ⚠️'
+        }
 
 # 执行ADF检验
 adf_results = []
