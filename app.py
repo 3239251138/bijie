@@ -92,7 +92,6 @@ def load_data():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(base_dir, 'data.csv')
     
-    # 读取CSV数据（UTF-8编码带BOM，兼容Excel打开）
     try:
         df = pd.read_csv(data_path, encoding='utf-8-sig')
     except Exception as e:
@@ -100,6 +99,15 @@ def load_data():
         st.stop()
     
     df['year'] = df['year'].astype(int)
+    
+    # ---- 数据质量检测：2001年GDP异常值修正 ----
+    # 2001年GDP=72.5亿，前后年份为158.2/190.3，明显为录入错误
+    outlier_year = 2001
+    mask = df['year'] == outlier_year
+    prev_gdp = df.loc[df['year'] == outlier_year - 1, 'gdp'].values[0]
+    next_gdp = df.loc[df['year'] == outlier_year + 1, 'gdp'].values[0]
+    df.loc[mask, 'gdp'] = round((prev_gdp + next_gdp) / 2, 1)
+    st.info(f"ℹ️ 已检测并修正 2001年GDP异常值（录入错误: 72.5亿 → {df.loc[mask, 'gdp'].values[0]:.1f}亿）")
     
     # 计算衍生指标
     df['pop_growth'] = df['population'].diff()  # 人口增量
@@ -156,7 +164,7 @@ with st.sidebar:
 # 过滤数据
 filtered_df = df[(df['year'] >= start_year) & (df['year'] <= end_year)].copy()
 
-# ==================== 第一部分：KPI 指标卡片 ====================
+# ==================== 第一部分：KPI 指标卡片 + 描述性统计 ====================
 st.markdown('<div class="section-header">📈 核心指标概览 (KPI Dashboard)</div>', unsafe_allow_html=True)
 
 kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
@@ -178,7 +186,32 @@ with kpi_col2:
         value=f"{filtered_df['population'].max():.2f} 万人",
         delta=f"{int(filtered_df.loc[filtered_df['population'].idxmax(), 'year'])}年达到"
     )
-    st.caption(f"(2004年: 718.83万)")
+    peak_year = int(filtered_df.loc[filtered_df['population'].idxmax(), 'year'])
+    st.caption(f"({peak_year}年: {filtered_df['population'].max():.2f}万)")
+
+with kpi_col3:
+    latest_gdp = latest_data['gdp']
+    st.metric(
+        label="最新GDP",
+        value=f"{latest_gdp:.1f} 亿元",
+        delta=f"+{((latest_gdp/earliest_data['gdp'])-1)*100:.1f}% vs 起始年"
+    )
+
+with kpi_col4:
+    avg_pop = filtered_df['population'].mean()
+    st.metric(
+        label="平均常住人口",
+        value=f"{avg_pop:.2f} 万人",
+        delta=f"标准差: {filtered_df['population'].std():.2f}"
+    )
+
+# 描述性统计折叠区域
+with st.expander("📐 描述性统计表 (Descriptive Statistics)"):
+    desc_stats = filtered_df[['year', 'population', 'gdp', 'pop_growth_rate', 'gdp_growth_rate']].describe().T
+    desc_stats.columns = ['样本量', '均值', '标准差', '最小值', '25%分位', '中位数', '75%分位', '最大值']
+    desc_stats = desc_stats[['样本量', '均值', '标准差', '最小值', '中位数', '最大值']]
+    desc_stats.index = ['年份', '人口(万人)', 'GDP(亿元)', '人口增长率(%)', 'GDP增长率(%)']
+    st.dataframe(desc_stats.style.format('{:.2f}'), use_container_width=True)
 
 with kpi_col3:
     latest_gdp = latest_data['gdp']
@@ -247,11 +280,12 @@ with tab_trend_pop:
         height=450,
         template='plotly_white',
         legend=dict(orientation='h', yanchor='bottom', y=1.02),
-        yaxis_range=[630, 750]
+        yaxis_range=[filtered_df['population'].min() - 15,
+                     filtered_df['population'].max() + 15]
     )
     st.plotly_chart(fig_pop, use_container_width=True)
     
-    # 阶段划分说明
+    # 阶段划分说明（基于原始数据硬编码，不受筛选影响）
     st.markdown('<div class="insight-box">', unsafe_allow_html=True)
     st.write("**🔍 三阶段特征识别：**")
     st.write("- **增长期 (1999-2004)**: 从667.36万增至718.83万（历史峰值），年均增加约10.29万")
@@ -398,17 +432,17 @@ with col_adf_table:
 
 with col_adf_interpret:
     # 根据实际数据生成动态结论
-    pop_diff_p = adf_results[1]['P值']
-    gdp_diff_p = adf_results[3]['P值']
+    pop_diff_p = adf_results[1]['P值'] if adf_results[1]['P值'] is not None else 1.0
+    gdp_diff_p = adf_results[3]['P值'] if adf_results[3]['P值'] is not None else 1.0
     pop_stationary = pop_diff_p < 0.05
     gdp_stationary = gdp_diff_p < 0.05
     
-    box_class = 'success-box' if (pop_stationary and gdp_stationary) else 'warning-box'
+    box_class = 'success-box' if (pop_stationary and gdp_stationary and adf_results[1]['P值'] is not None) else 'warning-box'
     st.markdown(f'<div class="{box_class}">', unsafe_allow_html=True)
     st.write("**检验结论（基于当前数据）：**")
     st.write(f"{'✅' if pop_stationary else '⚠️'} 人口一阶差分 ΔPOP_t: P值={pop_diff_p:.4f} {'→ 平稳' if pop_stationary else '→ 非平稳'}")
     st.write(f"{'✅' if gdp_stationary else '⚠️'} GDP对数一阶差分 Δln(GDP)_t: P值={gdp_diff_p:.4f} {'→ 平稳' if gdp_stationary else '→ 非平稳'}")
-    if pop_stationary and gdp_stationary:
+    if pop_stationary and gdp_stationary and adf_results[1]['P值'] is not None:
         st.write("✅ **满足构建 VAR 模型的前提条件！**")
     else:
         st.write("⚠️ 部分序列非平稳，VAR模型结果需谨慎解读（可能需更高阶差分）")
@@ -438,28 +472,20 @@ if len(var_clean) >= 6:
     lag_order_results = model.select_order(maxlags=4)
     optimal_lag = lag_order_results.aic
     
-    # 拟合VAR模型
-    results = model.fit(maxlags=min(optimal_lag, 2))
+    # 拟合VAR模型（用AIC建议阶数，最多不超过3阶避免过拟合）
+    final_lag = min(optimal_lag, 3)
+    if final_lag < 1:
+        final_lag = 1
+    results = model.fit(maxlags=final_lag)
     
     var_tab1, var_tab2, var_tab3, var_tab4 = st.tabs([
         "📋 模型摘要", "📊 Granger因果检验", "📈 脉冲响应(IRF)", "🔮 方差分解"
     ])
     
     with var_tab1:
-        st.write(f"**最优滞后阶数 (AIC准则): p = {optimal_lag}**")
+        st.subheader("信息准则与滞后阶数选择")
+        st.write(f"**实际拟合滞后阶数: p = {final_lag}**（AIC建议 {optimal_lag} 阶，综合考虑样本量后取 {final_lag} 阶）")
         st.markdown("---")
-        
-        # 信息准则表格
-        ic_df = pd.DataFrame({
-            '准则': ['AIC', 'BIC', 'FPE', 'HQIC'],
-            '数值': [
-                f"{results.aic:.3f}",
-                f"{results.bic:.3f}",
-                f"{results.fpe:.6f}",
-                f"{results.hqic:.3f}"
-            ]
-        })
-        st.dataframe(ic_df, use_container_width=True, hide_index=True)
         
         st.markdown("---")
         st.subheader("人口变动方程 (ΔPOP_t)")
@@ -476,50 +502,63 @@ if len(var_clean) >= 6:
     
     with var_tab2:
         st.subheader("Granger 因果检验结果")
-        st.caption("原假设 H₀: X 不是 Y 的 Granger 原因")
+        st.caption("原假设 H₀: X 不是 Y 的 Granger 原因（即X的滞后项无助于预测Y）")
         
         try:
-            gc_result = grangercausalitytests(var_clean[['d_POP', 'd_ln_GDP']], maxlag=2, verbose=False)
-            
-            # 提取F统计量和p值
-            gc_f_stats = [gc_result[i][0]['ssr_ftest'][0] for i in range(1, 3)]
-            gc_p_values = [gc_result[i][0]['ssr_ftest'][1] for i in range(1, 3)]
-            
-            # GDP -> 人口
+            # 双向检验：GDP → POP 和 POP → GDP
             col_gc1, col_gc2 = st.columns(2)
             
             with col_gc1:
-                st.markdown("**H₀: ln(GDP) 不是 POP 的 Granger 原因**")
-                for i, (f_stat, p_val) in enumerate(zip(gc_f_stats, gc_p_values)):
-                    is_significant = p_val < 0.05
+                st.markdown("**方向①: ln(GDP) ⇒ POP**")
+                st.caption("H₀: GDP不是人口变动的Granger原因")
+                gc_gdp2pop = grangercausalitytests(
+                    var_clean[['d_POP', 'd_ln_GDP']], maxlag=min(3, len(var_clean)//3), verbose=False
+                )
+                for lag in range(1, min(4, len(gc_gdp2pop) + 1)):
+                    f = gc_gdp2pop[lag][0]['ssr_ftest'][0]
+                    p = gc_gdp2pop[lag][0]['ssr_ftest'][1]
+                    sig = p < 0.05
                     st.metric(
-                        label=f"滞后{i+1}阶 F统计量",
-                        value=f"{f_stat:.3f}",
-                        delta=f"P={p_val:.4f}" + (" ✅拒绝H₀" if is_significant else " ❌接受H₀"),
-                        delta_color="inverse" if not is_significant else "normal"
+                        label=f"滞后{lag}阶",
+                        value=f"F={f:.3f}",
+                        delta=f"P={p:.4f}" + (" ✅拒绝H₀" if sig else " ❌接受H₀"),
+                        delta_color="normal" if sig else "off"
                     )
             
             with col_gc2:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if any(p < 0.05 for p in gc_p_values):
-                    st.success("""
-**结论: 经济增长是人口变动的 Granger 原因!**
-
-在显著性水平下，毕节市的经济增长显著影响了人口变动方向。
-证实了"产业留人"、"经济红利吸引回流"的理论假设。
-""")
-                else:
-                    st.warning("当前样本下未检测到显著的因果关系")
+                st.markdown("**方向②: POP ⇒ ln(GDP)**")
+                st.caption("H₀: 人口变动不是GDP的Granger原因")
+                gc_pop2gdp = grangercausalitytests(
+                    var_clean[['d_ln_GDP', 'd_POP']], maxlag=min(3, len(var_clean)//3), verbose=False
+                )
+                for lag in range(1, min(4, len(gc_pop2gdp) + 1)):
+                    f = gc_pop2gdp[lag][0]['ssr_ftest'][0]
+                    p = gc_pop2gdp[lag][0]['ssr_ftest'][1]
+                    sig = p < 0.05
+                    st.metric(
+                        label=f"滞后{lag}阶",
+                        value=f"F={f:.3f}",
+                        delta=f"P={p:.4f}" + (" ✅拒绝H₀" if sig else " ❌接受H₀"),
+                        delta_color="normal" if sig else "off"
+                    )
+            
+            # 动态结论
+            p_gdp2pop = min(gc_gdp2pop[lag][0]['ssr_ftest'][1] for lag in range(1, min(4, len(gc_gdp2pop) + 1)))
+            p_pop2gdp = min(gc_pop2gdp[lag][0]['ssr_ftest'][1] for lag in range(1, min(4, len(gc_pop2gdp) + 1)))
+            
+            st.markdown("---")
+            st.markdown("**综合结论：**")
+            if p_gdp2pop < 0.05:
+                st.success("✅ 经济增长 → 人口变动: 在显著性水平下，GDP增长是人口变动的Granger原因，证实了'经济红利吸引回流'")
+            else:
+                st.warning("⚠️ 经济增长 → 人口变动: 当前样本下未检测到显著Granger因果关系")
+            if p_pop2gdp < 0.05:
+                st.success("✅ 人口变动 → 经济增长: 人口变化对GDP有预测能力")
+            else:
+                st.warning("⚠️ 人口变动 → 经济增长: 未检测到显著Granger因果关系，人口红利驱动经济的传统假设在本数据中未得到验证")
                 
         except Exception as e:
             st.error(f"Granger检验执行出错: {e}")
-        
-        # 反向检验说明
-        st.markdown('<div class="warning-box">', unsafe_allow_html=True)
-        st.write("**反向检验 (POP → GDP):** 论文研究表明，人口变动不是经济增长的单向Granger原因")
-        st.write("→ 这打破了'人口红利带动经济'的传统思维")
-        st.write("→ 证实了'经济红利(产业与收入)'才是吸引人口回流的前置条件")
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with var_tab3:
         st.subheader("脉冲响应函数 (Impulse Response Function, IRF)")
@@ -607,29 +646,57 @@ st.markdown('<div class="section-header">🔮 时间序列预测 (ARIMA / SES)</
 pred_method = st.selectbox("选择预测方法", ["简单指数平滑 (SES)", "ARIMA(0,1,0)", "Holt线性趋势"])
 forecast_years = st.slider("预测未来年数", 1, 10, 5)
 
-# 使用全部数据进行预测
-pop_series = df['population'].values
-years_all = df['year'].values
+# 使用筛选后的数据进行预测（与用户选择的时间范围联动）
+pop_series = filtered_df['population'].values
+years_all = filtered_df['year'].values
 
-if pred_method == "简单指数平滑 (SES)":
-    model_pred = ExponentialSmoothing(pop_series, trend=None, seasonal=None).fit()
-    forecast = model_pred.forecast(steps=forecast_years)
-    method_name = "简单指数平滑 (SES)"
-    rmse_value = 13.46  # 根据论文结果
-    
-elif pred_method == "ARIMA(0,1,0)":
-    from statsmodels.tsa.arima.model import ARIMA
-    arima_model = ARIMA(pop_series, order=(0, 1, 0)).fit()
-    forecast = arima_model.forecast(steps=forecast_years)
-    method_name = "ARIMA(0,1,0)"
-    rmse_value = 13.46
-    
-else:
-    from statsmodels.tsa.holtwinters import Holt
-    holt_model = Holt(pop_series).fit()
-    forecast = holt_model.forecast(steps=forecast_years)
-    method_name = "Holt线性趋势"
-    rmse_value = 14.07
+@st.cache_data
+def compute_rmse(train, test, method):
+    """基于最后5期作为测试集计算RMSE"""
+    if len(train) < 8:
+        return None
+    try:
+        if method == "ses":
+            m = ExponentialSmoothing(train, trend=None, seasonal=None).fit()
+        elif method == "arima":
+            from statsmodels.tsa.arima.model import ARIMA
+            m = ARIMA(train, order=(0, 1, 0)).fit()
+        else:
+            from statsmodels.tsa.holtwinters import Holt
+            m = Holt(train).fit()
+        pred = m.forecast(steps=len(test))
+        return float(np.sqrt(np.mean((pred - test) ** 2)))
+    except:
+        return None
+
+# 动态计算RMSE（留出最后5期作测试集）
+test_n = min(5, len(pop_series) // 5)
+train_series = pop_series[:-test_n] if test_n > 0 else pop_series
+test_series = pop_series[-test_n:] if test_n > 0 else pop_series
+
+try:
+    if pred_method == "简单指数平滑 (SES)":
+        model_pred = ExponentialSmoothing(pop_series, trend=None, seasonal=None).fit()
+        forecast = model_pred.forecast(steps=forecast_years)
+        method_name = "简单指数平滑 (SES)"
+        rmse_value = compute_rmse(train_series, test_series, "ses")
+        
+    elif pred_method == "ARIMA(0,1,0)":
+        from statsmodels.tsa.arima.model import ARIMA
+        arima_model = ARIMA(pop_series, order=(0, 1, 0)).fit()
+        forecast = arima_model.forecast(steps=forecast_years)
+        method_name = "ARIMA(0,1,0)"
+        rmse_value = compute_rmse(train_series, test_series, "arima")
+        
+    else:
+        from statsmodels.tsa.holtwinters import Holt
+        holt_model = Holt(pop_series).fit()
+        forecast = holt_model.forecast(steps=forecast_years)
+        method_name = "Holt线性趋势"
+        rmse_value = compute_rmse(train_series, test_series, "holt")
+except Exception as e:
+    st.error(f"预测模型拟合失败: {e}")
+    st.stop()
 
 future_years = list(range(years_all[-1]+1, years_all[-1]+1+forecast_years))
 
@@ -675,11 +742,14 @@ with col_pred_tbl:
     st.dataframe(pred_df, use_container_width=True, hide_index=True)
 
 with col_pred_info:
-    st.metric(label="测试集 RMSE", value=f"{rmse_value:.2f} 万人")
-    st.caption("基于2019-2023年测试集计算")
+    if rmse_value is not None:
+        st.metric(label="留出法测试集 RMSE", value=f"{rmse_value:.2f} 万人")
+        st.caption(f"基于最后{test_n}期作为测试集的留出法计算")
+    else:
+        st.warning("样本量不足，无法计算测试集RMSE")
     st.markdown('<div class="insight-box">', unsafe_allow_html=True)
     st.write("**预测解读:**")
-    st.write(f"基于{method_name}，预计2024-2028年毕节市常住人口将稳定在 **{np.mean(forecast):.2f}万人** 左右")
+    st.write(f"基于{method_name}，预计未来{forecast_years}年毕节市常住人口将稳定在 **{np.mean(forecast):.2f}万人** 左右")
     st.write("若无重大外部冲击，人口规模保持动态平衡态势")
     st.markdown('</div>', unsafe_allow_html=True)
 
