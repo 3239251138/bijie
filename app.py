@@ -128,7 +128,7 @@ with st.sidebar:
     with col_s:
         start_year = st.selectbox("起始年份", list(range(1999, 2024)), index=0)
     with col_e:
-        end_year = st.selectbox("结束年份", list(range(2000, 2024)), index=24)
+        end_year = st.selectbox("结束年份", list(range(2000, 2024)), index=23)
 
     st.markdown("---")
     st.subheader("🎨 显示选项")
