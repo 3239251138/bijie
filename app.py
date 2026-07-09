@@ -448,8 +448,8 @@ if len(var_clean) >= 6:
         coef_gdp_labels = [f'ΔlnGDP(t-{i})' for i in range(1, len(coef_gdp)+1)]
         
         st.markdown("**关键系数解读:**")
-        st.success(f"经济拉动效应: Δln(GDP)_{{t-1}} 系数为 **{coef_gdp[0]:.3f}**"
-        
+        st.success(f"""经济拉动效应: Δln(GDP)_{{t-1}} 系数为 **{coef_gdp[0]:.3f}**
+
 这表明: 毕节市当年GDP增速每提高1个百分点，在滞后一期(即第二年)将影响人口增量约 **{abs(coef_gdp[0]):.1f}万人**""")
     
     with var_tab2:
