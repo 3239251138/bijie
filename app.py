@@ -13,7 +13,6 @@ from plotly.subplots import make_subplots
 from statsmodels.tsa.api import VAR, adfuller
 from statsmodels.tsa.stattools import grangercausalitytests
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-import matplotlib.pyplot as plt
 from scipy import stats
 import os
 import warnings
